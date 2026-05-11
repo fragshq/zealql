@@ -57,29 +57,9 @@ func InferTable(tableName string, data []map[string]any) (*Table, error) {
 			Name: k,
 			Type: columnTypes[k],
 		}
-
-		// Infer JSON schema for structured types (Text)
-		if col.Type == Text {
-			isStructured := false
-			for _, s := range samples[k] {
-				if s != nil {
-					rt := reflect.TypeOf(s)
-					kind := rt.Kind()
-					if kind == reflect.Map || (kind == reflect.Slice && rt.Elem().Kind() != reflect.Uint8) {
-						// Ensure it's not just a time.Time
-						if _, isTime := s.(interface{ IsZero() bool }); !isTime {
-							isStructured = true
-							break
-						}
-					}
-				}
-			}
-
-			if isStructured {
-				col.JSONSchema = inferJSONSchema(samples[k])
-			}
+		if col.Type == JSON {
+			col.JSONSchema = inferJSONSchema(samples[k])
 		}
-
 		columns[i] = col
 	}
 
