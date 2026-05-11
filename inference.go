@@ -2,8 +2,10 @@ package zealql
 
 import (
 	"reflect"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/google/uuid"
 )
 
 // SQLType represents a standard SQLite data type.
@@ -16,6 +18,7 @@ const (
 	Blob     SQLType = "BLOB"
 	DateTime SQLType = "DATETIME"
 	Null     SQLType = "NULL"
+	JSON     SQLType = "JSON"
 )
 
 // inferType determines the best SQLType for a given Go value.
@@ -47,18 +50,23 @@ func inferType(v any) SQLType {
 	case reflect.String:
 		return Text
 	case reflect.Slice, reflect.Array:
+		switch v.(type) {
+		case uuid.UUID, *uuid.UUID:
+			return Text
+		}
 		if rv.Type().Elem().Kind() == reflect.Uint8 {
 			return Blob
 		}
-		return Text // JSON
+
+		return JSON
 	case reflect.Map, reflect.Struct:
-		// Check for time.Time or types that behave like it (e.g. IsZero method).
-		if _, ok := v.(interface {
-			IsZero() bool
-		}); ok {
+		// Check for time.Time
+		switch v.(type) {
+		case time.Time, *time.Time:
 			return DateTime
+		default:
+			return JSON
 		}
-		return Text // JSON
 	default:
 		return Text
 	}

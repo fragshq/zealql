@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -230,6 +232,45 @@ func TestJSONSchemaInference(t *testing.T) {
 	}
 }
 
+func TestJsonSelection(t *testing.T) {
+	db, err := NewDatabase()
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer db.Close()
+	data := []map[string]any{
+		{
+			"id": 1,
+			"profile": map[string]any{
+				"name": "Alice",
+				"age":  30,
+			},
+		},
+		{
+			"id": 2,
+			"profile": map[string]any{
+				"name": "Bob",
+				"age":  30,
+			},
+		},
+		{
+			"id":      3,
+			"profile": nil,
+		},
+	}
+	_, err = db.CreateTableFromMaps("users", data)
+	if err != nil {
+		t.Fatalf("CreateTable() error = %v", err)
+	}
+	res, err := db.Query("SELECT * FROM users")
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if p, ok := res[0]["profile"].(map[string]any); !ok || p["name"] != "Alice" {
+		t.Errorf("JSON type mismatch")
+	}
+}
+
 func TestRelationalSystem(t *testing.T) {
 	db, err := NewDatabase()
 	if err != nil {
@@ -323,5 +364,32 @@ func TestRelationalSystem(t *testing.T) {
 	// Verify Anonymous (LEFT JOIN result should have nil for book_title)
 	if results[3]["author_name"] != "Anonymous Author" || results[3]["book_title"] != nil {
 		t.Errorf("Row 3 (Anonymous) mismatch: %+v", results[3])
+	}
+}
+
+func TestInsertSpecialTypes(t *testing.T) {
+	db, err := NewDatabase()
+	if err != nil {
+		t.Fatalf("failed to create database: %v", err)
+	}
+	defer db.Close()
+	tx := time.Now()
+	authorsData := []map[string]any{
+		{
+			"id":      uuid.New(),
+			"release": tx,
+			"name":    "john snow",
+		},
+	}
+	_, err = db.CreateTableFromMaps("authors", authorsData)
+	if err != nil {
+		t.Fatalf("failed to create authors table: %v", err)
+	}
+	res, err := db.Query("SELECT * FROM authors")
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if !tx.Equal(res[0]["release"].(time.Time)) {
+		t.Errorf("Release mismatch: %+v", res[0]["release"])
 	}
 }

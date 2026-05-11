@@ -103,31 +103,29 @@ func (d *Database) Query(query string, args ...any) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	columnTypes, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, err
+	}
 
 	var results []map[string]any
-	for rows.Next() {
-		columns := make([]any, len(cols))
-		columnPointers := make([]any, len(cols))
-		for i := range columns {
-			columnPointers[i] = &columns[i]
-		}
+	ptrs := make([]any, len(cols))
+	vals := make([]any, len(cols))
+	for i := range ptrs {
+		ptrs[i] = &vals[i]
+	}
 
-		if err := rows.Scan(columnPointers...); err != nil {
+	for rows.Next() {
+		if err := rows.Scan(ptrs...); err != nil {
 			return nil, err
 		}
-
 		m := make(map[string]any)
 		for i, colName := range cols {
-			val := columns[i]
-			// Handle SQLite types properly. SQLite often returns strings/blobs as []byte.
-			if b, ok := val.([]byte); ok {
-				// Try to unmarshal JSON if it looks like a valid JSON structure.
+			val := vals[i]
+			if columnTypes[i].DatabaseTypeName() == string(JSON) && val != nil {
 				var js any
-				if err := json.Unmarshal(b, &js); err == nil {
+				if err := json.Unmarshal([]byte(val.(string)), &js); err == nil {
 					val = js
-				} else {
-					// Fallback to plain string if not valid JSON.
-					val = string(b)
 				}
 			}
 			m[colName] = val

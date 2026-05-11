@@ -2,9 +2,12 @@ package zealql
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestInferJSONSchema_Comprehensive(t *testing.T) {
@@ -156,4 +159,13 @@ func TestInferenceStability(t *testing.T) {
 	if table.Columns[0].Name != "a" || table.Columns[1].Name != "m" || table.Columns[2].Name != "z" {
 		t.Errorf("Columns not sorted by name: %v, %v, %v", table.Columns[0].Name, table.Columns[1].Name, table.Columns[2].Name)
 	}
+}
+
+func TestInferSpecialTypes(t *testing.T) {
+	data := []map[string]any{
+		{"id": uuid.New(), "t": time.Now()},
+	}
+
+	table, _ := InferTable("time", data)
+	fmt.Println(table.ToSQL())
 }
