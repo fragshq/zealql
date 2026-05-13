@@ -69,6 +69,20 @@ func InferTable(tableName string, data []map[string]any) (*Table, error) {
 	}, nil
 }
 
+// Compatible checks if the provided table has an identical schema (column names and types)
+// to the current table. It assumes columns in both tables are sorted by name.
+func (t *Table) Compatible(other *Table) bool {
+	if len(t.Columns) != len(other.Columns) {
+		return false
+	}
+	for i := range t.Columns {
+		if t.Columns[i].Name != other.Columns[i].Name || t.Columns[i].Type != other.Columns[i].Type {
+			return false
+		}
+	}
+	return true
+}
+
 // ToSQL generates a CREATE TABLE statement for the table.
 // If a column has an inferred JSON schema, it is included as a SQL comment.
 func (t *Table) ToSQL() string {
@@ -138,7 +152,9 @@ func (t *Table) Insert(db *sql.DB, data []map[string]any) error {
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		_ = stmt.Close()
+	}()
 
 	for _, row := range data {
 		args := make([]any, len(t.Columns))

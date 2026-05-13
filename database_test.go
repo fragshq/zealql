@@ -21,7 +21,7 @@ func TestDatabase(t *testing.T) {
 		{"id": 2, "name": "Bob"},
 	}
 
-	_, err = db.CreateTableFromMaps("users", data)
+	_, err = db.Insert("users", data)
 	require.NoError(t, err)
 
 	results, err := db.Query("SELECT name FROM users WHERE id = 1")
@@ -86,7 +86,7 @@ func TestJsonSelection(t *testing.T) {
 			"profile": nil,
 		},
 	}
-	_, err = db.CreateTableFromMaps("users", data)
+	_, err = db.Insert("users", data)
 	require.NoError(t, err)
 
 	res, err := db.Query("SELECT * FROM users")
@@ -133,10 +133,10 @@ func TestRelationalSystem(t *testing.T) {
 		{"id": 103, "author_id": 2, "title": "A Game of Thrones"},
 	}
 
-	authorTable, err := db.CreateTableFromMaps("authors", authorsData)
+	authorTable, err := db.Insert("authors", authorsData)
 	require.NoError(t, err)
 
-	_, err = db.CreateTableFromMaps("books", booksData)
+	_, err = db.Insert("books", booksData)
 	require.NoError(t, err)
 
 	authorSQL := authorTable.ToSQL()
@@ -178,7 +178,7 @@ func TestDatabaseClone(t *testing.T) {
 	data := []map[string]any{
 		{"id": 1, "name": "Alice", "meta": map[string]any{"color": "blue"}},
 	}
-	_, err = src.CreateTableFromMaps("users", data)
+	_, err = src.Insert("users", data)
 	require.NoError(t, err)
 
 	dst, err := src.Clone()
@@ -219,7 +219,7 @@ func TestDatabaseIsolation(t *testing.T) {
 		{"id": 1, "name": "Alice"},
 	}
 
-	_, err = db1.CreateTableFromMaps("users", data1)
+	_, err = db1.Insert("users", data1)
 	require.NoError(t, err)
 
 	_, err = db1.Query("SELECT * FROM users")
@@ -243,7 +243,7 @@ func TestInsertSpecialTypes_Integration(t *testing.T) {
 			"name":    "john snow",
 		},
 	}
-	_, err = db.CreateTableFromMaps("authors", authorsData)
+	_, err = db.Insert("authors", authorsData)
 	require.NoError(t, err)
 
 	res, err := db.Query("SELECT * FROM authors")
@@ -255,4 +255,61 @@ func TestInsertSpecialTypes_Integration(t *testing.T) {
 	assert.True(t, tx.Equal(res[0]["release"].(time.Time)))
 	// uuid should also match if driver handles it
 	assert.Equal(t, id.String(), res[0]["id"].(string))
+}
+
+func TestInsertCompatibility(t *testing.T) {
+	db, err := NewDatabase()
+	require.NoError(t, err)
+	defer db.Close()
+
+	data1 := []map[string]any{
+		{"id": 1, "name": "Alice"},
+	}
+	_, err = db.Insert("users", data1)
+	require.NoError(t, err)
+
+	// 1. Identical structure - should work and append
+	data2 := []map[string]any{
+		{"id": 2, "name": "Bob"},
+	}
+	_, err = db.Insert("users", data2)
+	require.NoError(t, err)
+
+	results, err := db.Query("SELECT COUNT(*) as count FROM users")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), results[0]["count"])
+
+	// 2. Different structure (new column) - should fail
+	data3 := []map[string]any{
+		{"id": 3, "name": "Charlie", "age": 30},
+	}
+	_, err = db.Insert("users", data3)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match existing schema")
+
+	// 3. Subset structure (missing column) - should fail
+	data4 := []map[string]any{
+		{"id": 4},
+	}
+	_, err = db.Insert("users", data4)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match existing schema")
+
+	// 4. Different types for same key - should fail
+	data5 := []map[string]any{
+		{"id": "five", "name": "Eve"},
+	}
+	_, err = db.Insert("users", data5)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "does not match existing schema")
+
+	// Verify final count is still 2
+	results, err = db.Query("SELECT COUNT(*) as count FROM users")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), results[0]["count"])
+
+	// Verify metadata remains intact
+	table, ok := db.GetTable("users")
+	require.True(t, ok)
+	require.Len(t, table.Columns, 2)
 }

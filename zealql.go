@@ -36,39 +36,51 @@ func NewDatabase() (*Database, error) {
 	}, nil
 }
 
-// CreateTableFromMaps infers a schema from the provided sample data, executes the
-// CREATE TABLE statement, and inserts the data. The inferred schema is stored
-// for future reference.
-func (d *Database) CreateTableFromMaps(name string, data []map[string]any) (*Table, error) {
-	table, err := InferTable(name, data)
+func (d *Database) Insert(name string, data any) (*Table, error) {
+	rows := make([]map[string]any, 0)
+	switch t := data.(type) {
+	case []map[string]any:
+		rows = t
+	case []any:
+		for _, item := range t {
+			if cast, ok := item.(map[string]any); ok {
+				rows = append(rows, cast)
+			} else {
+				return nil, errors.New("data must be a slice of maps")
+			}
+		}
+	default:
+		return nil, errors.New("data must be a slice of maps")
+	}
+	table, err := InferTable(name, rows)
 	if err != nil {
 		return nil, err
 	}
 
-	if _, err := d.db.Exec(table.ToSQL()); err != nil {
-		return nil, fmt.Errorf("failed to create table %s: %w", name, err)
-	}
-
-	if err := table.Insert(d.db, data); err != nil {
-		return nil, fmt.Errorf("failed to insert initial data into %s: %w", name, err)
-	}
-
 	d.mu.Lock()
-	d.tables[name] = table
+	existingTable, exists := d.tables[name]
+	if exists {
+		if !existingTable.Compatible(table) {
+			d.mu.Unlock()
+			return nil, fmt.Errorf("inferred schema for %s does not match existing schema", name)
+		}
+		// Use the existing table to maintain metadata consistency (like JSON schemas)
+		table = existingTable
+	} else {
+		d.tables[name] = table
+	}
 	d.mu.Unlock()
-	return table, nil
-}
 
-func (d *Database) CreateTable(name string, data []any) (*Table, error) {
-	mid := make([]map[string]any, len(data))
-	for i, item := range data {
-		if cast, ok := item.(map[string]any); ok {
-			mid[i] = cast
-		} else {
-			return nil, errors.New("data must be a slice of maps")
+	if !exists {
+		if _, err := d.db.Exec(table.ToSQL()); err != nil {
+			return nil, fmt.Errorf("failed to create table %s: %w", name, err)
 		}
 	}
-	return d.CreateTableFromMaps(name, mid)
+
+	if err := table.Insert(d.db, rows); err != nil {
+		return nil, fmt.Errorf("failed to insert data into %s: %w", name, err)
+	}
+	return table, nil
 }
 
 // GetTable returns a table definition by its name if it was created via CreateTableFromMaps.
@@ -161,14 +173,14 @@ func (d *Database) Clone() (*Database, error) {
 	ctx := context.Background()
 	srcConn, err := d.db.Conn(ctx)
 	if err != nil {
-		dst.Close()
+		_ = dst.Close()
 		return nil, fmt.Errorf("failed to get source connection: %w", err)
 	}
 	defer srcConn.Close()
 
 	dstConn, err := dst.db.Conn(ctx)
 	if err != nil {
-		dst.Close()
+		_ = dst.Close()
 		return nil, fmt.Errorf("failed to get destination connection: %w", err)
 	}
 	defer dstConn.Close()
@@ -185,7 +197,7 @@ func (d *Database) Clone() (*Database, error) {
 	})
 
 	if err != nil {
-		dst.Close()
+		_ = dst.Close()
 		return nil, fmt.Errorf("serialization failed: %w", err)
 	}
 
@@ -199,7 +211,7 @@ func (d *Database) Clone() (*Database, error) {
 		})
 
 		if err != nil {
-			dst.Close()
+			_ = dst.Close()
 			return nil, fmt.Errorf("deserialization failed: %w", err)
 		}
 	}

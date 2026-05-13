@@ -65,7 +65,7 @@ func BenchmarkQuery(b *testing.B) {
 	for _, size := range sizes {
 		data := generateTestData(size)
 		db, _ := NewDatabase()
-		_, _ = db.CreateTableFromMaps("bench", data)
+		_, _ = db.Insert("bench", data)
 
 		b.Run(fmt.Sprintf("Rows-%d", size), func(b *testing.B) {
 			b.ResetTimer()
@@ -87,7 +87,7 @@ func BenchmarkFullCycle(b *testing.B) {
 	b.Run("Cycle-100", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			db, _ := NewDatabase()
-			_, _ = db.CreateTableFromMaps("bench", data)
+			_, _ = db.Insert("bench", data)
 			_, _ = db.Query("SELECT * FROM bench WHERE id = 50")
 			_ = db.Close()
 		}
@@ -111,7 +111,7 @@ func BenchmarkDatabaseClone(b *testing.B) {
 					},
 				}
 			}
-			db.CreateTableFromMaps("bench", data)
+			_, _ = db.Insert("bench", data)
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
@@ -119,7 +119,7 @@ func BenchmarkDatabaseClone(b *testing.B) {
 				if err != nil {
 					b.Fatal(err)
 				}
-				clone.Close()
+				_ = clone.Close()
 			}
 		})
 	}
