@@ -16,7 +16,7 @@ ZealQL is a lightweight Go library that provides an in-memory SQLite wrapper wit
 ## Installation
 
 ```bash
-go get github.com/theirish81/zealql
+go get github.com/fragshq/zealql
 ```
 
 *Note: ZealQL uses `modernc.org/sqlite`, a pure Go SQLite implementation, so no CGO is required.*
@@ -29,7 +29,7 @@ package main
 import (
 	"fmt"
 	"log"
-	"github.com/theirish81/zealql"
+	"github.com/fragshq/zealql"
 )
 
 func main() {

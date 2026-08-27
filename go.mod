@@ -1,4 +1,4 @@
-module github.com/theirish81/zealql
+module github.com/fragshq/zealql
 
 go 1.25.4
 
