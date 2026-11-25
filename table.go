@@ -2,11 +2,13 @@ package zealql
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -139,10 +141,15 @@ func quoteIdentifier(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
+// Preparer is satisfied by *sql.DB, *sql.Tx and *sql.Conn.
+type Preparer interface {
+	Prepare(query string) (*sql.Stmt, error)
+}
+
 // Insert executes the insertion of multiple rows of data into the provided
-// database connection. It automatically marshals maps and slices to JSON strings
-// for storage in SQLite TEXT/BLOB columns.
-func (t *Table) Insert(db *sql.DB, data []map[string]any) error {
+// database, transaction or connection. It automatically marshals maps, structs,
+// slices and arrays to JSON strings, and dereferences pointers.
+func (t *Table) Insert(db Preparer, data []map[string]any) error {
 	if len(data) == 0 {
 		return nil
 	}
@@ -159,21 +166,9 @@ func (t *Table) Insert(db *sql.DB, data []map[string]any) error {
 	for _, row := range data {
 		args := make([]any, len(t.Columns))
 		for i, col := range t.Columns {
-			val := row[col.Name]
-			if val != nil {
-				rv := reflect.ValueOf(val)
-				kind := rv.Kind()
-
-				// Automatically marshal complex types to JSON
-				if kind == reflect.Map || kind == reflect.Struct || (kind == reflect.Slice && rv.Type().Elem().Kind() != reflect.Uint8) {
-					// Don't marshal time.Time as JSON, it has its own handling
-					if _, isTime := val.(interface{ IsZero() bool }); !isTime {
-						b, err := json.Marshal(val)
-						if err == nil {
-							val = string(b)
-						}
-					}
-				}
+			val, err := toSQLValue(row[col.Name])
+			if err != nil {
+				return fmt.Errorf("failed to convert column %s: %w", col.Name, err)
 			}
 			args[i] = val
 		}
@@ -183,4 +178,50 @@ func (t *Table) Insert(db *sql.DB, data []map[string]any) error {
 	}
 
 	return nil
+}
+
+// toSQLValue converts a Go value into something the SQLite driver can store, mirroring the decisions taken by
+// inferType: pointers are dereferenced, byte slices and arrays are stored as BLOBs, and maps, structs, slices and
+// arrays are marshaled to JSON. Values implementing driver.Valuer (e.g. uuid.UUID) and time.Time are passed as-is.
+func toSQLValue(val any) (any, error) {
+	if val == nil {
+		return nil, nil
+	}
+	if _, ok := val.(driver.Valuer); ok {
+		return val, nil
+	}
+	rv := reflect.ValueOf(val)
+	for rv.Kind() == reflect.Pointer {
+		if rv.IsNil() {
+			return nil, nil
+		}
+		rv = rv.Elem()
+	}
+	val = rv.Interface()
+	switch val.(type) {
+	case driver.Valuer, time.Time:
+		return val, nil
+	}
+
+	switch rv.Kind() {
+	case reflect.Slice, reflect.Array:
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			b := make([]byte, rv.Len())
+			reflect.Copy(reflect.ValueOf(b), rv)
+			return b, nil
+		}
+		return marshalJSON(val)
+	case reflect.Map, reflect.Struct:
+		return marshalJSON(val)
+	default:
+		return val, nil
+	}
+}
+
+func marshalJSON(val any) (any, error) {
+	b, err := json.Marshal(val)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
 }
